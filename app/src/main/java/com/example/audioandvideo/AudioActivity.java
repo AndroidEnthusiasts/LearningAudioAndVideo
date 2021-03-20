@@ -24,63 +24,74 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import butterknife.BindView;
+import butterknife.ButterKnife;
+import butterknife.OnClick;
+import okio.BufferedSink;
+import okio.BufferedSource;
+import okio.Okio;
 
-public class AudioActivity extends Activity implements View.OnClickListener, AudioRecorder.AudioRecordCallback {
+
+/**
+ * 在路哥原例子中学习改写练习
+ * 作业：
+ * 完成使用AudioRecord录制pcm格式音频，支持暂停和恢复。
+ * 完成PCM和WAV的互相转换。
+ * 完成多段pcm音频文件拼接，wav应该差不多，读取拼接的head把长度记录下来，然后把data数据写入文件尾部，在修改head的长度数值加上刚才记录的长度
+ * 完成录制的wav音频播放
+ *
+ */
+public class AudioActivity extends Activity {
     private static String TAG = "AudioActivity";
-    private static final int DEFAULT_SAMPLE_RATE = 48000;
-    private static final int DEFAULT_PCM_DATA_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
-    private static final int DEFAULT_CHANNELS = 1;
 
-    private Button mBtnStartRecord;
-    private Button mBtnStopRecord;
-    private Button mBtnStartPlay;
-    private Button mBtnStopPlay;
+    @BindView(R.id.audio_btn_start_record)
+    public Button mBtnStartRecord;
+    @BindView(R.id.audio_btn_stop_record)
+    public Button mBtnStopRecord;
+    @BindView(R.id.audio_btn_start_play)
+    public Button mBtnStartPlay;
+    @BindView(R.id.audio_btn_stop_play)
+    public Button mBtnStopPlay;
+    @BindView(R.id.audio_btn_pause_recover_record)
+    public Button mBtnPause;
+//    @BindView(R.id.audio_btn_start_wav_play)
+//    public Button mBtnWavPlay;
 
     private AudioPlayer mAudioPlayer = new AudioPlayer();
     private AudioRecorder mAudioRecorder = new AudioRecorder();
     private File mPcmFile;
-    private int mSampleRate = DEFAULT_SAMPLE_RATE;
-    private int mPcmDataFormat = DEFAULT_PCM_DATA_FORMAT;
-    private int mChannels = DEFAULT_CHANNELS;
-    private FileOutputStream mFileOutputStream;
-    private boolean mIsRecording = false;
 
-
+    //    private boolean mIsRecording = false;
+    private boolean mIsPause = false;
+    List<String> files = new ArrayList<>();
 
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_audio);
-        mBtnStartRecord = findViewById(R.id.audio_btn_start_record);
-        mBtnStopRecord = findViewById(R.id.audio_btn_stop_record);
-        mBtnStartPlay = findViewById(R.id.audio_btn_start_play);
-        mBtnStopPlay = findViewById(R.id.audio_btn_stop_play);
-        mBtnStartRecord.setOnClickListener(this);
-        mBtnStopRecord.setOnClickListener(this);
-        mBtnStartPlay.setOnClickListener(this);
-        mBtnStopPlay.setOnClickListener(this);
-
+        ButterKnife.bind(this);
         mPcmFile = new File(Common.APP_DIR);
         try {
             if (!mPcmFile.exists()) {
                 mPcmFile.mkdirs();
             }
             mPcmFile = new File(Common.AUDIO_OUTPUT_PCM);
-           if(!mPcmFile.exists()){
-               mPcmFile.createNewFile();
-           }
+            if (!mPcmFile.exists()) {
+                mPcmFile.createNewFile();
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
-        mAudioRecorder.setSampleRate(mSampleRate);
-        mAudioRecorder.setPcmFormat(mPcmDataFormat);
-        mAudioRecorder.setChannels(mChannels);
-        mAudioRecorder.setRecordCallback(this);
+        mAudioRecorder.setSampleRate(AudioRecorder.DEFAULT_SAMPLE_RATE);
+        mAudioRecorder.setPcmFormat(AudioRecorder.DEFAULT_PCM_DATA_FORMAT);
+        mAudioRecorder.setChannels(AudioRecorder.DEFAULT_CHANNELS);
     }
 
     @Override
@@ -88,50 +99,77 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
         super.onPause();
         mAudioPlayer.stop();
         mAudioRecorder.stop();
+        mIsPause = false;
     }
 
-    @Override
-    public void onClick(View v) {
-        switch (v.getId()) {
-            case R.id.audio_btn_start_record:
-                startRecord();
-                break;
-            case R.id.audio_btn_stop_record:
-                stopRecord();
-                break;
-            case R.id.audio_btn_start_play:
-                startPlay();
-                break;
-            case R.id.audio_btn_stop_play:
-                stopPlay();
-                break;
+    @OnClick(R.id.audio_btn_pause_recover_record)
+    public void pauseAndRecover() {
+        if (mIsPause) {
+            Log.d(TAG, "恢复录制");
+            mBtnPause.setText(getResources().getString(R.string.audio_btn_pause_record));
+            //恢复录制
+            files.add(mPcmFile.getParent() + File.separator + mPcmFile.getName() + files.size());
+            startRecord(new File(files.get(files.size() - 1)));
+        } else {
+            Log.d(TAG, "暂停录制");
+            mBtnPause.setText(getResources().getString(R.string.audio_btn_recover_record));
+            //暂停录制
+            mAudioRecorder.stop();
         }
+        mIsPause = !mIsPause;
     }
 
-    private void startRecord() {
-        if (mAudioRecorder.start()) {
-            try {
-                mFileOutputStream = new FileOutputStream(mPcmFile);
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
-            }
-            mIsRecording = true;
+    @OnClick(R.id.audio_btn_start_record)
+    public void setBtnStartRecord(View view) {
+        startRecord(mPcmFile);
+    }
+
+    private void startRecord(File file) {
+        Log.e(TAG, "开始录制");
+        if (mAudioRecorder.start(file)) {
             disableButtons();
             new Handler().postDelayed(() -> mBtnStopRecord.setEnabled(true), 3000);
         }
     }
 
-    private void stopRecord() {
-        mIsRecording = false;
+    @OnClick(R.id.audio_btn_stop_record)
+    public void stopRecord() {
+        Log.e(TAG, "停止录制");
+        if (mIsPause) {
+            mIsPause = false;
+            mBtnPause.setText(getResources().getString(R.string.audio_btn_pause_record));
+        }
         mAudioRecorder.stop();
         resetButtons();
-        try {
-            mFileOutputStream.flush();
-            mFileOutputStream.close();
-        } catch (IOException e) {
-            Log.e(TAG, "onRecordEnded exception occur: " + e.getMessage());
+        if (files.size() > 0) {
+            merge();
         }
         pcmToWav(mPcmFile, new File(Common.AUDIO_OUTPUT_WAV));
+    }
+
+    /**
+     * 合并多个pcm文件
+     */
+    private void merge() {
+        try {
+            BufferedSink sink = Okio.buffer(Okio.sink(mPcmFile, true));
+            for (String name : files) {
+                BufferedSource source = Okio.buffer(Okio.source(new File(name)));
+                sink.writeAll(source);
+                sink.flush();
+                source.close();
+            }
+            sink.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        //3. 合并后记得删除缓存文件并清除list
+        for (int i = 0; i < files.size(); i++) {
+            new File((files.get(i))).delete();
+        }
+        files.clear();
     }
 
     private void pcmToWav(File pcmFile, File wavFile) {
@@ -141,11 +179,11 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
             fis = new FileInputStream(pcmFile);
             fos = new FileOutputStream(wavFile);
 
-            int sampleFormat = mPcmDataFormat == AudioFormat.ENCODING_PCM_16BIT ? 16 : 8;
-            writeWavHeader(fos, fis.getChannel().size(), sampleFormat, mSampleRate, mChannels);
+            int sampleFormat = AudioRecorder.DEFAULT_PCM_DATA_FORMAT == AudioFormat.ENCODING_PCM_16BIT ? 16 : 8;
+            writeWavHeader(fos, fis.getChannel().size(), sampleFormat, AudioRecorder.DEFAULT_SAMPLE_RATE, AudioRecorder.DEFAULT_CHANNELS);
 
-            int channelConfig =mChannels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO;
-            int bufferSize = AudioRecord.getMinBufferSize(mSampleRate, channelConfig, mPcmDataFormat);
+            int channelConfig = AudioRecorder.DEFAULT_CHANNELS == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_IN_STEREO;
+            int bufferSize = AudioRecord.getMinBufferSize(AudioRecorder.DEFAULT_SAMPLE_RATE, channelConfig, AudioRecorder.DEFAULT_PCM_DATA_FORMAT);
 
             byte[] data = new byte[bufferSize];
             while (fis.read(data) != -1) {
@@ -179,11 +217,11 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
         header[1] = 'I';
         header[2] = 'F';
         header[3] = 'F';
-        // pcm data length
-        header[4] = (byte) (pcmDataLength & 0xff);
-        header[5] = (byte) ((pcmDataLength >> 8) & 0xff);
-        header[6] = (byte) ((pcmDataLength >> 16) & 0xff);
-        header[7] = (byte) ((pcmDataLength >> 24) & 0xff);
+        // 是整个文件的长度减去ID和Size的长度
+        header[4] = (byte) (audioDataLength & 0xff);
+        header[5] = (byte) ((audioDataLength >> 8) & 0xff);
+        header[6] = (byte) ((audioDataLength >> 16) & 0xff);
+        header[7] = (byte) ((audioDataLength >> 24) & 0xff);
         // WAVE
         header[8] = 'W';
         header[9] = 'A';
@@ -225,22 +263,66 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
         header[38] = 't';
         header[39] = 'a';
         // data length
-        header[40] = (byte) (audioDataLength & 0xff);
-        header[41] = (byte) ((audioDataLength >> 8) & 0xff);
-        header[42] = (byte) ((audioDataLength >> 16) & 0xff);
-        header[43] = (byte) ((audioDataLength >> 24) & 0xff);
+        header[40] = (byte) (pcmDataLength & 0xff);
+        header[41] = (byte) ((pcmDataLength >> 8) & 0xff);
+        header[42] = (byte) ((pcmDataLength >> 16) & 0xff);
+        header[43] = (byte) ((pcmDataLength >> 24) & 0xff);
         fos.write(header);
     }
 
-    private void startPlay() {
-        mAudioPlayer.start();
-        disableButtons();
-        mBtnStopPlay.setEnabled(true);
+    @OnClick(R.id.audio_btn_start_wav_play)
+    public void startWavPlay() {
+        Log.e(TAG, "开始播放wav");
+        File file = new File(Common.AUDIO_OUTPUT_WAV);
+        if (!file.exists()) {
+            Toast.makeText(getBaseContext(), R.string.audio_msg_no_audio_file, Toast.LENGTH_LONG).show();
+            return;
+        }
+        byte[] head = new byte[44];
+        try {
+            BufferedSource source = Okio.buffer(Okio.source(file));
+            int res = source.read(head);
+            if (res != 44) {
+                return;
+            }
+            byte[] byte4 = new byte[4];
+//            System.arraycopy(head, 40, byte4, 0, 4);
+//            int pcmSize = Util.toInt(byte4);
+            byte[] byte2 = new byte[2];
+            System.arraycopy(head, 22, byte2, 0, 2);
+            int channels = Util.toInt(byte2);
+            System.arraycopy(head, 34, byte2, 0, 2);
+            int sampleFormat = Util.toInt(byte2);
+            System.arraycopy(head, 24, byte4, 0, 4);
+            int sampleRate = Util.toInt(byte4);
+            source.close();
+            if (sampleFormat == 16) {
+                disablePlayButtons();
+                mAudioPlayer.start(sampleRate,
+                        channels == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO,
+                        AudioRecorder.DEFAULT_PCM_DATA_FORMAT);
+            } else {
+                Log.e(TAG, "sampleFormat 不是16位");
+            }
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
-    private void stopPlay() {
+    @OnClick(R.id.audio_btn_start_play)
+    public void startPlay() {
+        Log.e(TAG, "开始播放");
+        mAudioPlayer.start();
+        disablePlayButtons();
+    }
+
+    @OnClick(R.id.audio_btn_stop_play)
+    public void stopPlay() {
+        Log.e(TAG, "停止播放");
         mAudioPlayer.stop();
-        resetButtons();
+        resetPlayButtons();
     }
 
     private void disableButtons() {
@@ -248,25 +330,36 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
         mBtnStopPlay.setEnabled(false);
         mBtnStartRecord.setEnabled(false);
         mBtnStopRecord.setEnabled(false);
+        mBtnPause.setEnabled(true);
     }
 
     private void resetButtons() {
+        mBtnPause.setEnabled(false);
         mBtnStartPlay.setEnabled(true);
         mBtnStopPlay.setEnabled(false);
         mBtnStartRecord.setEnabled(true);
         mBtnStopRecord.setEnabled(false);
     }
 
-    @Override
-    public void onRecordSample(byte[] data) {
-        if (mIsRecording) {
-            try {
-                mFileOutputStream.write(data);
-            } catch (IOException e) {
-                Log.e(TAG, "onRecordSample write data failed: " + e.getMessage());
-            }
-        }
+    private void disablePlayButtons() {
+        mBtnStartPlay.setEnabled(false);
+        mBtnStartRecord.setEnabled(false);
+        mBtnStopRecord.setEnabled(false);
+        mBtnPause.setEnabled(false);
+        mBtnStopPlay.setEnabled(true);
     }
+
+    private void resetPlayButtons() {
+        mBtnStartPlay.setEnabled(true);
+        mBtnStopPlay.setEnabled(false);
+        mBtnStartRecord.setEnabled(false);
+        mBtnStopRecord.setEnabled(false);
+        mBtnPause.setEnabled(false);
+    }
+
+//    @Override
+//    public void onRecordSample(byte[] data) {
+//    }
 
     private class AudioPlayer {
 
@@ -277,29 +370,45 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
 
         private void start() {
             if (!mPcmFile.exists()) {
-                Toast.makeText(getBaseContext(),R.string.audio_msg_no_audio_file,Toast.LENGTH_LONG).show();
+                Toast.makeText(getBaseContext(), R.string.audio_msg_no_audio_file, Toast.LENGTH_LONG).show();
                 return;
             }
             if (mIsPlaying) {
-                Toast.makeText(getBaseContext(),R.string.audio_msg_playing_now,Toast.LENGTH_LONG).show();
+                Toast.makeText(getBaseContext(), R.string.audio_msg_playing_now, Toast.LENGTH_LONG).show();
                 return;
             }
             release();
-            int channelConfig = mChannels == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
-            mBufferSize = AudioTrack.getMinBufferSize(mSampleRate, channelConfig, mPcmDataFormat);
-            mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, mSampleRate, channelConfig,
-                    mPcmDataFormat, mBufferSize, AudioTrack.MODE_STREAM);
+            int channelConfig = AudioRecorder.DEFAULT_CHANNELS == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
+            mBufferSize = AudioTrack.getMinBufferSize(AudioRecorder.DEFAULT_SAMPLE_RATE, channelConfig, AudioRecorder.DEFAULT_PCM_DATA_FORMAT);
+            mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, AudioRecorder.DEFAULT_SAMPLE_RATE, channelConfig,
+                    AudioRecorder.DEFAULT_PCM_DATA_FORMAT, mBufferSize, AudioTrack.MODE_STREAM);
             mIsPlaying = true;
             mExecutor = Executors.newSingleThreadExecutor();
             mExecutor.execute(this::play);
         }
 
-        private void play() {
+        public void start(int sampleRate, int channelConfig, int dataFormat) {
+            if (mIsPlaying) {
+                Toast.makeText(getBaseContext(), R.string.audio_msg_playing_now, Toast.LENGTH_LONG).show();
+                return;
+            }
+            release();
+            mBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, dataFormat);
+            mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig,
+                    dataFormat, mBufferSize, AudioTrack.MODE_STREAM);
+            mIsPlaying = true;
+            mExecutor = Executors.newSingleThreadExecutor();
+            mExecutor.execute(this::playWav);
+        }
+
+        private void playWav() {
             Log.d(TAG, "AudioPlayer started");
+            DataInputStream dis = null;
             try {
                 byte[] buffer = new byte[mBufferSize];
                 int readCount;
-                DataInputStream dis = new DataInputStream(new FileInputStream(mPcmFile));
+                dis = new DataInputStream(new FileInputStream(new File(Common.AUDIO_OUTPUT_WAV)));
+                dis.skipBytes(44);
                 while (dis.available() > 0 && mIsPlaying) {
                     readCount = dis.read(buffer);
                     if (readCount < 0) {
@@ -310,6 +419,44 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
                 }
             } catch (Exception e) {
                 Log.e(TAG, "play audio failed: " + e.getMessage());
+            } finally {
+                if (dis != null) {
+                    try {
+                        dis.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            stop();
+            Log.d(TAG, "AudioPlayer stopped");
+        }
+
+        private void play() {
+            Log.d(TAG, "AudioPlayer started");
+            DataInputStream dis = null;
+            try {
+                byte[] buffer = new byte[mBufferSize];
+                int readCount;
+                dis = new DataInputStream(new FileInputStream(mPcmFile));
+                while (dis.available() > 0 && mIsPlaying) {
+                    readCount = dis.read(buffer);
+                    if (readCount < 0) {
+                        continue;
+                    }
+                    mAudioTrack.play();
+                    mAudioTrack.write(buffer, 0, readCount);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "play audio failed: " + e.getMessage());
+            } finally {
+                if (dis != null) {
+                    try {
+                        dis.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
             }
             stop();
             Log.d(TAG, "AudioPlayer stopped");
@@ -326,14 +473,14 @@ public class AudioActivity extends Activity implements View.OnClickListener, Aud
                 }
             }
             release();
-            if(Looper.myLooper() == Looper.getMainLooper()){
-               new Runnable() {
-                   @Override
-                   public void run() {
-                       resetButtons();
-                   }
-               };
-            }else {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        resetButtons();
+                    }
+                };
+            } else {
                 new Handler(Looper.getMainLooper()).post(() -> resetButtons());
             }
         }

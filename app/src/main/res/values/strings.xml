@@ -14,8 +14,11 @@
 
     <!-- AudioActivity -->
     <string name="audio_btn_start_record">开始录制</string>
+    <string name="audio_btn_pause_record">暂停录制</string>
+    <string name="audio_btn_recover_record">恢复录制</string>
     <string name="audio_btn_stop_record">停止录制</string>
     <string name="audio_btn_start_play">开始播放</string>
+    <string name="audio_btn_start_wav_play">开始播放wav</string>
     <string name="audio_btn_stop_play">停止播放</string>
 
     <string name="audio_msg_no_audio_file">无音频文件，请先进行录制</string>

@@ -3,10 +3,11 @@ package com.example.audioandvideo.module;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,9 +15,9 @@ import java.util.concurrent.Executors;
 public class AudioRecorder {
     private static final String TAG = "AudioRecorder";
 
-    private static final int DEFAULT_SAMPLE_RATE = 48000;
-    private static final int DEFAULT_PCM_DATA_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
-    private static final int DEFAULT_CHANNELS = 1;
+    public static final int DEFAULT_SAMPLE_RATE = 44100;
+    public static final int DEFAULT_PCM_DATA_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+    public static final int DEFAULT_CHANNELS = 1;
 
     private ExecutorService mExecutor = Executors.newCachedThreadPool();
     private AudioRecord mAudioRecord;
@@ -25,8 +26,9 @@ public class AudioRecorder {
     private int mPcmFormat = DEFAULT_PCM_DATA_FORMAT;
     private int mChannels = DEFAULT_CHANNELS;
 
-    private AudioRecordCallback mRecordCallback;
-    private Handler mHandler;
+    //    private AudioRecordCallback mRecordCallback;
+    //    private Handler mHandler;
+    private FileOutputStream mFileOutputStream;
     private boolean mIsRecording = false;
 
     public void setSampleRate(int sampleRate) {
@@ -41,9 +43,6 @@ public class AudioRecorder {
         mPcmFormat = pcmFormat;
     }
 
-    public void setRecordCallback(AudioRecordCallback recordCallback) {
-        mRecordCallback = recordCallback;
-    }
 
     public void setChannels(int channels) {
         mChannels = channels;
@@ -53,8 +52,10 @@ public class AudioRecorder {
         return mChannels;
     }
 
-    public boolean start() {
+    public boolean start(File filePath) {
         try {
+            mFileOutputStream = new FileOutputStream(filePath);
+
             int channelConfig = mChannels == 1 ? AudioFormat.CHANNEL_IN_MONO : AudioFormat.CHANNEL_OUT_STEREO;
 //            mBufferSize = AudioRecord.getMinBufferSize(mSampleRate, channelConfig, mPcmFormat);
             mBufferSize = getAudioBufferSize(channelConfig, mPcmFormat);
@@ -71,7 +72,6 @@ public class AudioRecorder {
         }
         mIsRecording = true;
         mExecutor.execute(this::record);
-        mHandler = new Handler(Looper.myLooper());
 
         return true;
     }
@@ -103,6 +103,7 @@ public class AudioRecorder {
     }
 
     private void record() {
+        //设置进程优先级， THREAD_PRIORITY_URGENT_AUDIO标准较重要音频播放优先级
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
         if (mAudioRecord == null || mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
             return;
@@ -115,12 +116,18 @@ public class AudioRecorder {
         int readResult;
         while (mIsRecording) {
             readResult = mAudioRecord.read(audioBuffer.array(), 0, mBufferSize);
-            if (readResult > 0 && mRecordCallback != null) {
+//            Log.d("录制数据长度", readResult + "");
+            if (readResult > 0) {
                 byte[] data = new byte[readResult];
                 audioBuffer.position(0);
                 audioBuffer.limit(readResult);
                 audioBuffer.get(data, 0, readResult);
-                mHandler.post(() -> mRecordCallback.onRecordSample(data));
+//                mHandler.post(() -> mRecordCallback.onRecordSample(data));
+                try {
+                    mFileOutputStream.write(data);
+                } catch (IOException e) {
+                    Log.e(TAG, "onRecordSample write data failed: " + e.getMessage());
+                }
             }
         }
 
@@ -130,6 +137,12 @@ public class AudioRecorder {
 
     public void stop() {
         mIsRecording = false;
+        try {
+            mFileOutputStream.flush();
+            mFileOutputStream.close();
+        } catch (IOException e) {
+            Log.e(TAG, "onRecordEnded exception occur: " + e.getMessage());
+        }
     }
 
     private void release() {
@@ -140,8 +153,8 @@ public class AudioRecorder {
         }
     }
 
-    public interface AudioRecordCallback {
-        // start 在哪个线程调用，就运行在哪个线程
-        void onRecordSample(byte[] data);
-    }
+//    public interface AudioRecordCallback {
+//        // start 在哪个线程调用，就运行在哪个线程
+//        void onRecordSample(byte[] data);
+//    }
 }
